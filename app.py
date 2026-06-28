@@ -349,6 +349,18 @@ def get_pipeline(mode: str):
     if os.path.exists(f"{model_dir}/components.pkl") and os.path.exists(f"{model_dir}/cvae.pt"):
         print(f"Loading pre-trained {mode} pipeline from disk...")
         import joblib
+        import numpy.random._pickle
+        
+        # Monkey-patch numpy's bit generator unpickler to handle Python 3.14 -> 3.11 type mismatch
+        original_ctor = numpy.random._pickle.__bit_generator_ctor
+        def patched_ctor(bit_generator_name="MT19937"):
+            if type(bit_generator_name) is not str:
+                bit_generator_name = getattr(bit_generator_name, '__name__', 'MT19937')
+            if bit_generator_name == 'MT19937':
+                return numpy.random.MT19937()
+            return original_ctor(bit_generator_name)
+        numpy.random._pickle.__bit_generator_ctor = patched_ctor
+
         comp = joblib.load(f"{model_dir}/components.pkl")
         cvae = CVAE(input_dim=len(comp["inputs"]), cond_dim=len(comp["objectives"]))
         cvae.load_state_dict(torch.load(f"{model_dir}/cvae.pt", map_location=torch.device('cpu')))
