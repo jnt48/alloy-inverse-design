@@ -336,19 +336,16 @@ def inverse_design_pipeline(cvae, forward_ensemble, scaler_x, scaler_y, objectiv
     return top_3
 
 # ======================================================================================
-# GLOBAL PIPELINE CACHE (One per mode to avoid retraining)
+# GLOBAL PIPELINE CACHE (Removed to save RAM on Render 512MB tier)
 # ======================================================================================
-pipeline_cache = {}
 
 def get_pipeline(mode: str):
-    """Lazy-loads and caches the ML pipeline for a given mode. Loads from disk if pre-trained."""
-    if mode in pipeline_cache:
-        return pipeline_cache[mode]
-        
+    """Loads the ML pipeline for a given mode from disk (memory-mapped)."""
     model_dir = f"models/{mode}"
     if os.path.exists(f"{model_dir}/components.pkl") and os.path.exists(f"{model_dir}/cvae.pt"):
-        print(f"Loading pre-trained {mode} pipeline from disk...")
+        print(f"Loading pre-trained {mode} pipeline from disk (mmap)...")
         import joblib
+        import gc
         import numpy.random._pickle
         
         # Monkey-patch numpy's bit generator unpickler to handle Python 3.14 -> 3.11 type mismatch
@@ -361,14 +358,14 @@ def get_pipeline(mode: str):
             return original_ctor(bit_generator_name)
         numpy.random._pickle.__bit_generator_ctor = patched_ctor
 
-        comp = joblib.load(f"{model_dir}/components.pkl")
+        comp = joblib.load(f"{model_dir}/components.pkl", mmap_mode='r')
         cvae = CVAE(input_dim=len(comp["inputs"]), cond_dim=len(comp["objectives"]))
         cvae.load_state_dict(torch.load(f"{model_dir}/cvae.pt", map_location=torch.device('cpu')))
         cvae.eval()
         
         comp["cvae"] = cvae
-        pipeline_cache[mode] = comp
-        return pipeline_cache[mode]
+        gc.collect()
+        return comp
 
     # Find dataset file
     file_path = None
@@ -475,6 +472,9 @@ def generate(req: GenerateRequest):
     display_cols = [c for c in display_cols if c in top_alloys.columns]
 
     results = top_alloys[display_cols].to_dict(orient="records")
+    import gc
+    gc.collect()
+    
     return {
         "status": "success",
         "batch": req.batch_name,
