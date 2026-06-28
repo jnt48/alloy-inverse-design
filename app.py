@@ -341,8 +341,21 @@ def inverse_design_pipeline(cvae, forward_ensemble, scaler_x, scaler_y, objectiv
 pipeline_cache = {}
 
 def get_pipeline(mode: str):
-    """Lazy-loads and caches the ML pipeline for a given mode."""
+    """Lazy-loads and caches the ML pipeline for a given mode. Loads from disk if pre-trained."""
     if mode in pipeline_cache:
+        return pipeline_cache[mode]
+        
+    model_dir = f"models/{mode}"
+    if os.path.exists(f"{model_dir}/components.pkl") and os.path.exists(f"{model_dir}/cvae.pt"):
+        print(f"Loading pre-trained {mode} pipeline from disk...")
+        import joblib
+        comp = joblib.load(f"{model_dir}/components.pkl")
+        cvae = CVAE(input_dim=len(comp["inputs"]), cond_dim=len(comp["objectives"]))
+        cvae.load_state_dict(torch.load(f"{model_dir}/cvae.pt", map_location=torch.device('cpu')))
+        cvae.eval()
+        
+        comp["cvae"] = cvae
+        pipeline_cache[mode] = comp
         return pipeline_cache[mode]
 
     # Find dataset file
